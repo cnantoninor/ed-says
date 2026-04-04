@@ -1,0 +1,1 @@
+../../.ai/rules/bc-github.md
