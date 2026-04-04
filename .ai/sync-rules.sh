@@ -109,6 +109,22 @@ for link in "$CLAUDE_RULES"/*.md "$CURSOR_RULES"/*.mdc; do
   fi
 done
 
+# ── Install git pre-push hook ─────────────────────────────────────────────────
+log "Installing git hook..."
+hook_src=".ai/hooks/pre-push"
+hook_dst="$REPO_ROOT/.git/hooks/pre-push"
+hook_content="#!/usr/bin/env bash
+# Delegates to the source-controlled hook in .ai/hooks/pre-push
+exec \"\$(git rev-parse --show-toplevel)/.ai/hooks/pre-push\" \"\$@\""
+
+if [ -f "$hook_dst" ] && ! grep -q "\.ai/hooks/pre-push" "$hook_dst" 2>/dev/null; then
+  err "pre-push hook already exists and is not managed by this repo — skipping"
+else
+  echo "$hook_content" > "$hook_dst"
+  chmod +x "$hook_dst"
+  ok "installed: .git/hooks/pre-push → $hook_src"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Done: ${created} created, ${updated} updated, ${removed} removed, ${errors} errors"

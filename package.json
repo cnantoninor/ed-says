@@ -15,7 +15,7 @@
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
     "package": "ncc build src/index.ts -o dist-action --source-map --license licenses.txt",
-    "prepare": "npm run build"
+    "prepare": "npm run build && ([ -d .git ] && bash .ai/sync-rules.sh || true)"
   },
   "keywords": [
     "epistemic-debt",

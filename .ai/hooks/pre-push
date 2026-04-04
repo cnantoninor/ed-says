@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# .ai/hooks/pre-push — source-controlled pre-push hook
+# Wired up via .git/hooks/pre-push → .ai/hooks/pre-push
+#
+# What it does:
+#   1. Runs .ai/sync-rules.sh to keep symlinks up to date
+#   2. Aborts the push if new symlinks were created (uncommitted)
+#      so the user can review and commit them first
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+SYNC_SCRIPT="$REPO_ROOT/.ai/sync-rules.sh"
+
+[ -x "$SYNC_SCRIPT" ] || { echo "pre-push: .ai/sync-rules.sh not found or not executable"; exit 1; }
+
+# ── Run sync ──────────────────────────────────────────────────────────────────
+echo "pre-push: syncing .ai rules..."
+output="$(bash "$SYNC_SCRIPT" 2>&1)"
+echo "$output"
+
+# ── Check for uncommitted changes introduced by the sync ─────────────────────
+# git status --porcelain lists untracked (??) and modified (M) files.
+# New symlinks appear as untracked; updated symlinks pointing to a changed
+# target appear as modified.
+new_files="$(git -C "$REPO_ROOT" status --porcelain \
+  -- ".claude/rules/" ".cursor/rules/" "CLAUDE.md" \
+  2>/dev/null | grep -E '^\?\?|^[[:space:]]M|^M' || true)"
+
+if [ -n "$new_files" ]; then
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════╗"
+  echo "║  pre-push: sync created or modified rule symlinks            ║"
+  echo "╠══════════════════════════════════════════════════════════════╣"
+  echo "║  Review the files below, then commit them before pushing:   ║"
+  echo "╚══════════════════════════════════════════════════════════════╝"
+  echo ""
+  echo "$new_files"
+  echo ""
+  echo "  git add .claude/rules/ .cursor/rules/ CLAUDE.md"
+  echo "  git commit -m 'chore: sync ai rule symlinks'"
+  echo "  git push"
+  echo ""
+  exit 1
+fi
+
+echo "pre-push: symlinks are up to date — proceeding with push"
+exit 0
