@@ -1,6 +1,6 @@
 name: "Ed Says - Epistemic Debt Analyzer"
 description: "Measures epistemic debt per PR across Requirements, Specification, Implementation, and Validation levels"
-author: "arau6"
+author: "cnantoninor"
 
 branding:
   icon: "book-open"

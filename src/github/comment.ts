@@ -45,7 +45,7 @@ export function formatSummary(
   lines.push("- **BF** = bus factor (people who understand the component)");
   lines.push("- **N_req** = minimum safe coverage (from DDD subdomain classification)");
   lines.push("");
-  lines.push("Configure in `.ed-says.yml` · [Learn more](https://github.com/arau6/ed-says)");
+  lines.push("Configure in `.ed-says.yml` · [Learn more](https://github.com/cnantoninor/ed-says)");
   lines.push("</details>");
 
   return lines.join("\n");

@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: arau6/ed-says@v1
+      - uses: cnantoninor/ed-says@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -97,7 +97,7 @@ Ed Says measures understanding at four levels (Phase 3):
 ## Development
 
 ```bash
-git clone https://github.com/arau6/ed-says.git
+git clone https://github.com/cnantoninor/ed-says.git
 cd ed-says
 npm install
 npm run typecheck
