@@ -1,0 +1,15 @@
+diff --git a/src/core/handler.ts b/src/core/handler.ts
+index 1234567..abcdefg 100644
+--- a/src/core/handler.ts
++++ b/src/core/handler.ts
+@@ -10,6 +10,12 @@ export function handleRequest(req: Request) {
+   const data = parseBody(req);
+
++  if (data.type === "webhook") {
++    for (const hook of data.hooks) {
++      await processHook(hook);
++    }
++  }
++
+   return new Response(JSON.stringify(data));
+ }
