@@ -116,10 +116,12 @@ Shows current `.ed-says.yml` contents with explanation of each field. Offers to 
 ### `/ed-says:status`
 Reads `.ed-says-state.json`, shows the last analysis result without re-running. Fast, no LLM tokens.
 
-### `/ed-says:ask` (Phase 3)
+### `/ed-says:ask` (Phase 0+, not deferred)
 Selects a component from the last analysis result. Uses `ed-says-judge` agent to generate
 comprehension questions at the implementation epistemic level. Posts questions as a GitHub review
-thread if token available.
+thread if token available. Claude acts as the LLMJ — no separate infrastructure needed.
+Grasp score (`Gc = rubricScore/16 × complexity`) is written to `.ed-says-state.json` and used
+by the next `/ed-says:analyze` run to adjust debt downward.
 
 ### `/ed-says:history` (Phase 2)
 Reads all entries in `.ed-says-state.json`, shows debt trend per component across the last N PRs.
@@ -136,21 +138,37 @@ This script is the deterministic core. It must be callable standalone, with no L
 ed-says-analyze.py [--base <branch>] [--config <path>] [--format json|text]
 ```
 
-**Logic (port from existing TypeScript):**
+**Logic:**
 1. `git diff <base>...HEAD` → raw unified diff
 2. Parse diff into `ComponentDiff[]` — group files by component via glob matching from `.ed-says.yml`
-3. Compute cognitive complexity per component (port from `src/analyzers/complexity.ts`):
-   - Only added lines (`+` prefix)
-   - Control flow keywords × (1 + nesting depth)
-   - Logical operators `&&` `||` flat +1
-   - Ternary `?` +1 (excluding `?.`)
-4. Apply Ed formula per component:
+3. Compute cognitive complexity per component using **lizard** (`pip install lizard`):
+   ```bash
+   lizard <changed_files> --languages typescript --CCN -o json
+   ```
+   - Lizard produces language-aware cognitive complexity matching SonarQube's definition
+   - Falls back to hand-rolled heuristic (port of `src/analyzers/complexity.ts`) if lizard unavailable
+   - Only added lines are analyzed: extract added chunks from diff before passing to lizard
+4. Derive bus factor — two sources, first wins:
+   - Explicit: `bus_factor` field in `.ed-says.yml` for the component
+   - Derived: `git log --follow --format='%ae' -- <paths> | sort -u | wc -l` (distinct authors, last 90 days)
+5. Apply Ed formula per component:
    ```
    debt = complexity × max(0, 1 − bus_factor / threshold)
    ```
    Default thresholds: core=2, supporting=2, generic=1
-5. Classify severity: LOW≤25, MEDIUM≤50, HIGH≤75, CRITICAL>75
-6. Sum component debts → total debt → overall severity
+6. If `.ed-says-state.json` contains a grasp score `Gc` for this component from a prior `/ed-says:ask`
+   session, apply grasp adjustment:
+   ```
+   adjusted_debt = max(0, debt − Gc)
+   ```
+7. Classify severity: LOW≤25, MEDIUM≤50, HIGH≤75, CRITICAL>75
+8. Sum component debts → total debt → overall severity
+
+**Coupling analysis (optional, Phase 1+):**
+```bash
+npx depcruise src/<component> --output-type json
+```
+`dependency-cruiser` provides fan-in / fan-out per module, replacing the `src/analyzers/coupling.ts` stub.
 
 **Output (JSON):**
 ```json
@@ -249,19 +267,24 @@ to remember to invoke it.
 **Goal:** Run `/ed-says:analyze` on this repo's own PRs today.
 
 **Deliverables:**
-1. `scripts/ed-says-analyze.py` — port formula + diff parsing from `src/`
+1. `scripts/ed-says-analyze.py` — lizard-based complexity + Ed formula + git-derived bus factor fallback
 2. `commands/ed-says/analyze.md` — main command prompt with GitHub token detection
-3. `agents/ed-says-analyzer.md` — analysis subagent
-4. `templates/.ed-says.yml` — default config
-5. Manual install: copy files into `.claude/` in this repo
+3. `commands/ed-says/ask.md` — comprehension Q&A loop, grasp score written to state
+4. `agents/ed-says-analyzer.md` — analysis subagent
+5. `agents/ed-says-judge.md` — rubric judge (4-axis, 0–4 each)
+6. `templates/.ed-says.yml` — default config
+7. Manual install: copy files into `.claude/` in this repo
 
-**Out of scope for Phase 0:** installer, multi-LLM, state persistence, PR comments, all other commands.
+**Out of scope for Phase 0:** installer, multi-LLM, state persistence, PR comments, `init`/`config`/`status`/`history` commands.
 
-**Success criterion:** Running `/ed-says:analyze --base main` in Claude Code on a real PR in this
-repo produces a correctly computed debt score matching the TypeScript implementation.
+**Success criterion:**
+- `/ed-says:analyze --base main` on a real PR produces a debt score
+- `/ed-says:ask auth` generates 2–3 comprehension questions, accepts answers, writes `Gc` to state
+- Second `/ed-says:analyze` run shows grasp-adjusted debt
 
-**Verification:** Cross-check output of the Python script against `npm run test` results on the
-same fixture diffs in `test/fixtures/`.
+**Verification:** Cross-check Python script output against `npm run test` results on the same
+fixture diffs in `test/fixtures/`. Lizard and the TypeScript heuristic will not produce identical
+numbers — document the delta and choose one as the reference.
 
 ---
 
@@ -298,21 +321,19 @@ use `/ed-says:analyze`.
 
 ---
 
-### Phase 3 — LLMJ Comprehension (Phase 3 of ed-says roadmap)
+### Phase 3 — Multi-level scoring + history
 
-**Goal:** `/ed-says:ask` generates comprehension questions and scores answers — using Claude as the
-judge (replaces the `src/llmj/` stub entirely).
+**Goal:** Score across all four epistemic levels (requirements, specification, implementation,
+validation). Show debt trend per level in `/ed-says:history`.
 
 **Deliverables:**
-1. `agents/ed-says-judge.md` — rubric judge agent (4-axis: causality, counterfactuals, edge cases,
-   cross-boundary coherence; 0–4 per axis)
-2. `commands/ed-says/ask.md` — selects component, generates questions at epistemic level,
-   posts as GitHub review thread if token present
-3. Grasp score (`Gc = rubricScore/16 × complexity`) written to state file
-4. `analyze.md` updated to show grasp-adjusted debt when state contains grasp scores
+1. `ask.md` extended with `--level <requirements|specification|implementation|validation>` flag
+2. State file extended with per-level grasp scores
+3. `analyze.md` updated to show per-level debt breakdown
+4. `commands/ed-says/history.md` — trend chart per component per level across last N PRs
 
-**Note:** The `ed-says-judge.md` agent *is* the LLMJ. No separate LLM infrastructure needed.
-The entire `src/llmj/` module becomes unnecessary in the skill implementation.
+**Note:** `/ed-says:ask` and `ed-says-judge.md` are already built in Phase 0. This phase just
+adds level selection and the history view. No new infrastructure.
 
 ---
 
@@ -340,7 +361,10 @@ is the shared core — it runs identically in both contexts. This is the "no one
 | Config format | `.ed-says.yml` | Unchanged from TypeScript implementation |
 | State format | `.ed-says-state.json` | Simple, git-trackable, rolling window |
 | GitHub comment | Graceful degradation | Token present → comment; absent → terminal + notice |
-| LLM role | Orchestration + Phase 3 judge | LLM for interpretation and comprehension, not formula |
+| LLM role | Orchestration + rubric judge | LLM for interpretation and comprehension; judge available from Phase 0 |
+| /ed-says:ask | Available in Phase 0, not deferred | Skill = Claude is the LLMJ; no stub to implement |
+| Complexity engine | lizard over hand-rolled heuristic | Battle-tested, language-aware, matches SonarQube definition |
+| Bus factor | Config first, git log fallback | Removes requirement for upfront init; works on first run |
 | Multi-LLM | Install-time transformation | GSD pattern, no runtime abstraction layer |
 | CLAUDE.md | Append with markers | Self-reinforcing, GSD pattern |
 | Sequence | Skill-first → Action later | No one-way door; dog-food drives validation |
@@ -352,7 +376,8 @@ is the shared core — it runs identically in both contexts. This is the "no one
 | Python target | TypeScript source | Notes |
 |---|---|---|
 | Diff parsing | `src/analyzers/diff-parser.ts` | `parseDiff()`, `matchComponent()` |
-| Complexity | `src/analyzers/complexity.ts` | `computeFileComplexity()`, nesting logic |
+| Complexity | lizard (pip) | Replaces `src/analyzers/complexity.ts` heuristic; fallback to hand-rolled port if unavailable |
+| Coupling | dependency-cruiser (npm) | Replaces `src/analyzers/coupling.ts` stub; fan-in/fan-out per module |
 | Formula | `src/scoring/formula.ts` | `computeComponentDebt()`, `classifySeverity()` |
 | Config loading | `src/core/config.ts` | Zod schema → use `pyyaml` + manual validation |
 | Comment posting | `src/github/comment.ts` | `postOrUpdateComment()`, marker logic |
