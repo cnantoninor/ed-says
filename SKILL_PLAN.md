@@ -138,37 +138,95 @@ This script is the deterministic core. It must be callable standalone, with no L
 ed-says-analyze.py [--base <branch>] [--config <path>] [--format json|text]
 ```
 
+**Formula units:**
+
+| Symbol | Unit | Range | Meaning |
+|---|---|---|---|
+| `Cs_diff` | complexity points (CP) | 0 … ∞ | Cognitive load of added lines only |
+| `Cs_file` | CP | 0 … ∞ | Pre-existing complexity of the full file being changed |
+| `fan_in` | integer (modules) | 0 … N | Count of modules that import this component |
+| `churn` | integer (commits) | 0 … N | Commit count touching this component in last 90 days |
+| `Cs_effective` | CP | 0 … ∞ | System-aware complexity (diff amplified by context) |
+| `BF_proxy` | integer (people) | 0 … N | Count of qualifying authors (git / CODEOWNERS) |
+| `confidence` | dimensionless ratio | 0.0 … 1.0 | Quality of the BF measurement source |
+| `BF_effective` | effective people | 0.0 … N | Fractional people after confidence discount |
+| `N_req` | integer (people) | 1 … N | Minimum safe bus factor from config |
+| `coverage_gap` | dimensionless ratio | 0.0 … 1.0 | `max(0, 1 − BF_effective / N_req)` |
+| `Ed_risk` | CP | 0 … ∞ | Epistemic debt = CP × coverage_gap (same unit as Cs) |
+| `rubricScore` | points | 0 … 16 | Sum of 4 axis scores (0–4 each) |
+| `Gc` | CP | 0 … Cs | Grasp = comprehension fraction × complexity; same unit as Cs |
+| `adjusted_debt` | CP | 0 … ∞ | Debt after grasp credit; clamped at 0 |
+| `totalDebt` | CP | 0 … ∞ | Sum of adjusted_debt across all components |
+| `severity` | band | LOW/MEDIUM/HIGH/CRITICAL | Threshold applied to totalDebt in CP |
+
+All scoring quantities (Cs, Gc, Ed_risk, totalDebt) are in **complexity points (CP)** — a dimensionless
+index, not lines of code or time. Severity bands (LOW≤25, MEDIUM≤50, HIGH≤75, CRITICAL>75) are
+calibrated thresholds on CP, chosen so that a typical well-understood PR scores LOW.
+
 **Logic:**
 1. `git diff <base>...HEAD` → raw unified diff
 2. Parse diff into `ComponentDiff[]` — group files by component via glob matching from `.ed-says.yml`
-3. Compute cognitive complexity per component using **lizard** (`pip install lizard`):
+3. Compute **system-aware** cognitive complexity per component:
+
+   a. `Cs_diff` — run **lizard** on added lines extracted from diff:
    ```bash
-   lizard <changed_files> --languages typescript --CCN -o json
+   lizard <added_lines_tempfile> --languages typescript --CCN -o json
    ```
-   - Lizard produces language-aware cognitive complexity matching SonarQube's definition
-   - Falls back to hand-rolled heuristic (port of `src/analyzers/complexity.ts`) if lizard unavailable
-   - Only added lines are analyzed: extract added chunks from diff before passing to lizard
-4. Derive bus factor — two sources, first wins:
-   - Explicit: `bus_factor` field in `.ed-says.yml` for the component
-   - Derived: `git log --follow --format='%ae' -- <paths> | sort -u | wc -l` (distinct authors, last 90 days)
+   Falls back to hand-rolled heuristic (port of `src/analyzers/complexity.ts`) if lizard unavailable.
+
+   b. `Cs_file` — run lizard on the full file before the patch (pre-image):
+   ```bash
+   git show <base>:<filepath> | lizard --languages typescript --CCN -o json
+   ```
+
+   c. `fan_in` — count of modules importing this component (Phase 1+):
+   ```bash
+   npx depcruise src/<component> --output-type json  # extract dependents count
+   ```
+
+   d. `churn` — commit frequency over last 90 days:
+   ```bash
+   git log --since=90days --follow --oneline -- <paths> | wc -l
+   ```
+
+   e. Combine into `Cs_effective` (weights are configurable in `.ed-says.yml`, defaults shown):
+   ```
+   Cs_effective = Cs_diff × (1 + 0.3×Cs_file_norm + 0.3×fan_in_norm + 0.2×churn_norm)
+   ```
+   Where `_norm` = value divided by the repo-wide 90th-percentile of that metric (so weights stay
+   dimensionless and comparable across repos of different sizes).
+
+4. Derive **confidence-weighted** bus factor — fallback chain, first match wins:
+
+   | Source | confidence | How |
+   |---|---|---|
+   | `.ed-says.yml` `bus_factor` field | 0.7 | Explicit config |
+   | `.github/CODEOWNERS` for this path | 0.7 | Count declared owners |
+   | `git log --since=90days` distinct authors | 0.4 | Recent contributors |
+   | `git log` all-time distinct authors | 0.2 | All-time contributors |
+   | No data | 1.0 (worst case) | Force BF_effective=0 → maximum debt |
+
+   ```
+   BF_effective = BF_proxy × confidence
+   ```
+   When LLMJ grasp scores exist (Phase 3), `confidence` is upgraded to 1.0 for those components.
+
 5. Apply Ed formula per component:
    ```
-   debt = complexity × max(0, 1 − bus_factor / threshold)
+   coverage_gap = max(0, 1 − BF_effective / N_req)
+   Ed_risk      = Cs_effective × coverage_gap          [units: CP]
    ```
-   Default thresholds: core=2, supporting=2, generic=1
+   Default N_req thresholds: core=2, supporting=2, generic=1
+
 6. If `.ed-says-state.json` contains a grasp score `Gc` for this component from a prior `/ed-says:ask`
    session, apply grasp adjustment:
    ```
-   adjusted_debt = max(0, debt − Gc)
+   Gc             = (rubricScore / 16) × Cs_effective  [units: CP]
+   adjusted_debt  = max(0, Ed_risk − Gc)               [units: CP]
    ```
-7. Classify severity: LOW≤25, MEDIUM≤50, HIGH≤75, CRITICAL>75
-8. Sum component debts → total debt → overall severity
 
-**Coupling analysis (optional, Phase 1+):**
-```bash
-npx depcruise src/<component> --output-type json
-```
-`dependency-cruiser` provides fan-in / fan-out per module, replacing the `src/analyzers/coupling.ts` stub.
+7. Classify severity: LOW≤25 CP, MEDIUM≤50 CP, HIGH≤75 CP, CRITICAL>75 CP
+8. Sum `adjusted_debt` across all components → `totalDebt` → overall severity
 
 **Output (JSON):**
 ```json
@@ -178,10 +236,21 @@ npx depcruise src/<component> --output-type json
   "components": [
     {
       "name": "auth",
-      "complexity": 18,
-      "busFactor": 1,
+      "csDiff": 8,
+      "csFile": 45,
+      "fanIn": 6,
+      "churn": 12,
+      "csEffective": 18.4,
+      "bfProxy": 2,
+      "bfSource": "git-recent",
+      "confidence": 0.4,
+      "bfEffective": 0.8,
       "threshold": 2,
-      "debtScore": 9.0,
+      "coverageGap": 0.6,
+      "edRisk": 11.0,
+      "rubricScore": null,
+      "gc": null,
+      "debtScore": 11.0,
       "severity": "LOW",
       "files": ["src/auth/login.ts"]
     }
@@ -364,7 +433,10 @@ is the shared core — it runs identically in both contexts. This is the "no one
 | LLM role | Orchestration + rubric judge | LLM for interpretation and comprehension; judge available from Phase 0 |
 | /ed-says:ask | Available in Phase 0, not deferred | Skill = Claude is the LLMJ; no stub to implement |
 | Complexity engine | lizard over hand-rolled heuristic | Battle-tested, language-aware, matches SonarQube definition |
-| Bus factor | Config first, git log fallback | Removes requirement for upfront init; works on first run |
+| Cs formula | System-aware: diff × (1 + file + coupling + churn) | Diff complexity alone misses context risk |
+| Bus factor source | Confidence-weighted fallback chain | Git log measures exposure not understanding; discount reflects that |
+| BF without LLMJ | Pessimistic by default (over-estimates debt) | Safe error direction: flag risk that isn't there vs miss real risk |
+| All formula units | Complexity Points (CP), dimensionless | Cs, Gc, Ed_risk, totalDebt all in same unit; severity bands are CP thresholds |
 | Multi-LLM | Install-time transformation | GSD pattern, no runtime abstraction layer |
 | CLAUDE.md | Append with markers | Self-reinforcing, GSD pattern |
 | Sequence | Skill-first → Action later | No one-way door; dog-food drives validation |
