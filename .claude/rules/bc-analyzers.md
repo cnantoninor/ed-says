@@ -1,1 +1,0 @@
-../../.ai/rules/bc-analyzers.md

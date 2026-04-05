@@ -1,9 +1,0 @@
-node_modules/
-dist/
-dist-action/
-*.tsbuildinfo
-.env
-.env.local
-coverage/
-.DS_Store
-*.log
