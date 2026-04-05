@@ -17,7 +17,7 @@ alongside the code it analyzes. It:
 
 1. Runs on-demand via `/ed-says:analyze` or automatically via a hook on commits/pushes
 2. Computes a deterministic epistemic debt score using a Python script (portable, LLM-agnostic)
-3. Uses the LLM (Claude, Cursor, Copilot, etc.) for orchestration, interpretation, and Phase 3
+3. Uses the LLM (Claude, Cursor, Copilot, etc.) for orchestration, interpretation, and Milestone 3
    comprehension questions — not for the formula itself
 4. Persists state to `.ed-says-state.json` for trend analysis across sessions
 5. Posts results as a PR comment when a GitHub token is available; falls back to terminal output
@@ -40,12 +40,12 @@ ed-says-skill/                         ← new repo or new directory in this rep
       init.md                          → /ed-says:init     (interactive config setup)
       config.md                        → /ed-says:config   (view / edit .ed-says.yml)
       status.md                        → /ed-says:status   (show last report from state)
-      ask.md                           → /ed-says:ask      (Phase 3 comprehension questions)
+      ask.md                           → /ed-says:ask      (Milestone 3 comprehension questions)
       history.md                       → /ed-says:history  (debt trend from state ledger)
 
   agents/
     ed-says-analyzer.md                ← analysis subagent (runs script, interprets results)
-    ed-says-judge.md                   ← Phase 3 rubric judge (generates questions, scores answers)
+    ed-says-judge.md                   ← Milestone 3 rubric judge (generates questions, scores answers)
 
   scripts/
     ed-says-analyze.py                 ← deterministic formula (portable, no LLM required)
@@ -116,14 +116,14 @@ Shows current `.ed-says.yml` contents with explanation of each field. Offers to 
 ### `/ed-says:status`
 Reads `.ed-says-state.json`, shows the last analysis result without re-running. Fast, no LLM tokens.
 
-### `/ed-says:ask` (Phase 0+, not deferred)
+### `/ed-says:ask` (Milestone 0+, not deferred)
 Selects a component from the last analysis result. Uses `ed-says-judge` agent to generate
 comprehension questions at the implementation epistemic level. Posts questions as a GitHub review
 thread if token available. Claude acts as the LLMJ — no separate infrastructure needed.
 Grasp score (`Gc = rubricScore/16 × complexity`) is written to `.ed-says-state.json` and used
 by the next `/ed-says:analyze` run to adjust debt downward.
 
-### `/ed-says:history` (Phase 2)
+### `/ed-says:history` (Milestone 2)
 Reads all entries in `.ed-says-state.json`, shows debt trend per component across the last N PRs.
 Flags components trending upward.
 
@@ -179,7 +179,7 @@ calibrated thresholds on CP, chosen so that a typical well-understood PR scores 
    git show <base>:<filepath> | lizard --languages typescript --CCN -o json
    ```
 
-   c. `fan_in` — count of modules importing this component (Phase 1+):
+   c. `fan_in` — count of modules importing this component (Milestone 1+):
    ```bash
    npx depcruise src/<component> --output-type json  # extract dependents count
    ```
@@ -209,7 +209,7 @@ calibrated thresholds on CP, chosen so that a typical well-understood PR scores 
    ```
    BF_effective = BF_proxy × confidence
    ```
-   When LLMJ grasp scores exist (Phase 3), `confidence` is upgraded to 1.0 for those components.
+   When LLMJ grasp scores exist (Milestone 3), `confidence` is upgraded to 1.0 for those components.
 
 5. Apply Ed formula per component:
    ```
@@ -327,11 +327,11 @@ to remember to invoke it.
 
 ---
 
-## Implementation Phases
+## Implementation Milestones
 
 ---
 
-### Phase 0 — Dog-food (MVP, immediate value)
+### Milestone 0 — Dog-food (MVP, immediate value)
 
 **Goal:** Run `/ed-says:analyze` on this repo's own PRs today.
 
@@ -344,7 +344,7 @@ to remember to invoke it.
 6. `templates/.ed-says.yml` — default config
 7. Manual install: copy files into `.claude/` in this repo
 
-**Out of scope for Phase 0:** installer, multi-LLM, state persistence, PR comments, `init`/`config`/`status`/`history` commands.
+**Out of scope for Milestone 0:** installer, multi-LLM, state persistence, PR comments, `init`/`config`/`status`/`history` commands.
 
 **Success criterion:**
 - `/ed-says:analyze --base main` on a real PR produces a debt score
@@ -357,7 +357,7 @@ numbers — document the delta and choose one as the reference.
 
 ---
 
-### Phase 1 — Full Skill Suite
+### Milestone 1 — Full Skill Suite
 
 **Goal:** All commands working, state persisted, PR comments posted.
 
@@ -374,7 +374,7 @@ numbers — document the delta and choose one as the reference.
 
 ---
 
-### Phase 2 — Installer + Packaging
+### Milestone 2 — Installer + Packaging
 
 **Goal:** `npx ed-says-skill --install` works. Others can use it.
 
@@ -390,7 +390,7 @@ use `/ed-says:analyze`.
 
 ---
 
-### Phase 3 — Multi-level scoring + history
+### Milestone 3 — Multi-level scoring + history
 
 **Goal:** Score across all four epistemic levels (requirements, specification, implementation,
 validation). Show debt trend per level in `/ed-says:history`.
@@ -401,12 +401,12 @@ validation). Show debt trend per level in `/ed-says:history`.
 3. `analyze.md` updated to show per-level debt breakdown
 4. `commands/ed-says/history.md` — trend chart per component per level across last N PRs
 
-**Note:** `/ed-says:ask` and `ed-says-judge.md` are already built in Phase 0. This phase just
+**Note:** `/ed-says:ask` and `ed-says-judge.md` are already built in Milestone 0. This milestone just
 adds level selection and the history view. No new infrastructure.
 
 ---
 
-### Phase 4 — GitHub Action Wrapper (CI graduation)
+### Milestone 4 — GitHub Action Wrapper (CI graduation)
 
 **Goal:** The same Python script runs in CI without Claude Code. Full automation on every PR.
 
@@ -430,8 +430,8 @@ is the shared core — it runs identically in both contexts. This is the "no one
 | Config format | `.ed-says.yml` | Unchanged from TypeScript implementation |
 | State format | `.ed-says-state.json` | Simple, git-trackable, rolling window |
 | GitHub comment | Graceful degradation | Token present → comment; absent → terminal + notice |
-| LLM role | Orchestration + rubric judge | LLM for interpretation and comprehension; judge available from Phase 0 |
-| /ed-says:ask | Available in Phase 0, not deferred | Skill = Claude is the LLMJ; no stub to implement |
+| LLM role | Orchestration + rubric judge | LLM for interpretation and comprehension; judge available from Milestone 0 |
+| /ed-says:ask | Available in Milestone 0, not deferred | Skill = Claude is the LLMJ; no stub to implement |
 | Complexity engine | lizard over hand-rolled heuristic | Battle-tested, language-aware, matches SonarQube definition |
 | Cs formula | System-aware: diff × (1 + file + coupling + churn) | Diff complexity alone misses context risk |
 | Bus factor source | Confidence-weighted fallback chain | Git log measures exposure not understanding; discount reflects that |
@@ -455,17 +455,17 @@ is the shared core — it runs identically in both contexts. This is the "no one
 | Comment posting | `src/github/comment.ts` | `postOrUpdateComment()`, marker logic |
 
 Test fixtures for cross-validation: `test/fixtures/` — use these diffs to verify Python output
-matches TypeScript output before Phase 0 is considered done.
+matches TypeScript output before Milestone 0 is considered done.
 
 ---
 
 ## Branch Strategy
 
 - This plan lives on: `claude/ed-says-implementation-analysis-rEyiH`
-- Phase 0 build: new branch `claude/ed-says-skill-phase0`
-- Each phase gets its own branch, PR against main
+- Milestone 0 build: new branch `claude/ed-says-skill-milestone0`
+- Each milestone gets its own branch, PR against main
 
 ---
 
 *Plan authored: 2026-04-05. Hand this file to a new session with the instruction: "Implement
-Phase 0 of SKILL_PLAN.md in a new branch `claude/ed-says-skill-phase0`."*
+Milestone 0 of SKILL_PLAN.md in a new branch `claude/ed-says-skill-milestone0`."*
