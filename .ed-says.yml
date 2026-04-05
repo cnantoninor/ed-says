@@ -64,19 +64,18 @@ thresholds:
     high: "51-75"
     critical: "76+"
 
-llmj:
-  provider: openai
-  model: gpt-4o-mini
-  max_questions_per_level: 2
-  temperature: 0.3
-
 analyzers:
   complexity:
-    engine: heuristic
+    engine: lizard          # falls back to hand-rolled heuristic if lizard unavailable
     languages:
       - typescript
+    system_aware:           # weights for Cs_effective = Cs_diff × (1 + w1×file_norm + w2×fan_in_norm + w3×churn_norm)
+      file_norm_weight: 0.3
+      fan_in_norm_weight: 0.3
+      churn_norm_weight: 0.2
+      churn_lookback_days: 90
   coupling:
-    enabled: false
+    enabled: false          # fan_in via dependency-cruiser (Phase 1+)
 
 ledger:
   enabled: false

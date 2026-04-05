@@ -2,25 +2,43 @@
 
 > *"Ed Says your team's knowledge debt is showing."*
 
-Measure how well your team understands the code they ship. Ed Says is a GitHub Action + CLI that quantifies **epistemic debt** per pull request — the gap between the complexity of code and the team's understanding of it.
+Measure how well your team understands the code they ship. Ed Says is a Claude Code skill + GitHub Action that quantifies **epistemic debt** per pull request — the gap between the complexity of code and the team's understanding of it.
 
 ## What is Epistemic Debt?
 
 **Epistemic debt** accumulates when code is shipped without genuine understanding. Unlike technical debt (code quality), epistemic debt measures *knowledge quality* — can the people responsible for a component explain, predict, and safely modify it?
 
 ```
-Ed = Cs(t) × max(0, 1 - BF / N_req)
+Ed_risk = Cs_effective × max(0, 1 − BF_effective / N_req)
 ```
 
-- **Cs(t)** — complexity of the changed code (measured via static analysis)
-- **BF** — bus factor (people who understand the component above a threshold)
+- **Cs_effective** — system-aware complexity: diff complexity amplified by pre-existing file complexity, coupling (fan-in), and churn
+- **BF_effective** — confidence-weighted bus factor: proxy count × source confidence (git log = 0.4, CODEOWNERS = 0.7, explicit config = 0.7, LLMJ-verified = 1.0)
 - **N_req** — minimum safe coverage (from DDD subdomain classification)
+
+All quantities are in **complexity points (CP)** — a dimensionless index. Severity bands: LOW ≤ 25 CP, MEDIUM ≤ 50 CP, HIGH ≤ 75 CP, CRITICAL > 75 CP.
 
 When bus factor meets the threshold → zero debt. When nobody understands the code → full complexity counts as debt.
 
 ## Quick Start
 
-### GitHub Action
+### Claude Code Skill (recommended)
+
+Install the skill into your repo:
+
+```bash
+npx ed-says-skill --install --local
+```
+
+Then run from Claude Code:
+
+```
+/ed-says:analyze --base main
+/ed-says:ask auth          # comprehension Q&A → adjusts debt score
+/ed-says:status            # show last result without re-running
+```
+
+### GitHub Action (Phase 4)
 
 ```yaml
 name: Epistemic Debt Check
@@ -43,19 +61,15 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### CLI
-
-```bash
-npx ed-says analyze --base main
-```
-
 ## How It Works
 
-1. **PR opened/updated** → Ed Says triggers
-2. **Diff parsed** → files grouped by component (from `.ed-says.yml`)
-3. **Static analysis** → cognitive complexity computed for changed code
-4. **Formula applied** → Ed score per component, weighted by bus factor gap
-5. **PR comment posted** → "Ed Says: Epistemic Debt Score: 42 (Architecture: HIGH, Code: LOW)"
+1. **`/ed-says:analyze` triggered** → reads `.ed-says.yml` (or uses defaults)
+2. **Diff parsed** → files grouped by component via glob matching
+3. **System-aware complexity** → `lizard` computes `Cs_diff` on added lines; amplified by pre-existing file complexity, fan-in, and churn to get `Cs_effective`
+4. **Confidence-weighted bus factor** → derived from CODEOWNERS / git log with a confidence discount; upgraded to 1.0 when LLMJ grasp scores exist
+5. **Formula applied** → `Ed_risk = Cs_effective × coverage_gap` per component
+6. **Grasp adjustment** → if `/ed-says:ask` was run previously, `Gc` credit reduces `Ed_risk`
+7. **Result posted** → PR comment when `GITHUB_TOKEN` is set; terminal output otherwise
 
 ## Configuration
 
@@ -90,9 +104,11 @@ Ed Says measures understanding at four levels (Phase 3):
 
 ## Roadmap
 
-- **Phase 1** (current): Static complexity analysis + PR comments
-- **Phase 2**: CLI mode, debt ledger (time series), coupling analysis
-- **Phase 3**: LLMJ comprehension questions + rubric scoring
+- **Phase 0** (current): Skill dog-food MVP — `/ed-says:analyze`, `/ed-says:ask`, Python script core
+- **Phase 1**: Full skill suite — `init`, `config`, `status` commands; PR comments; state persistence
+- **Phase 2**: Installer + packaging — `npx ed-says-skill --install`; multi-LLM support (Cursor, Copilot)
+- **Phase 3**: Multi-level scoring — all four epistemic levels; `/ed-says:history` trend view
+- **Phase 4**: GitHub Action wrapper — CI graduation; same Python script runs in both contexts
 
 ## Development
 
@@ -105,9 +121,15 @@ npm test
 npm run build
 ```
 
+Requires `lizard` for complexity analysis (falls back to heuristic if unavailable):
+
+```bash
+pip install lizard
+```
+
 ## Formula Reference
 
-See [docs/formula.md](docs/formula.md) for the full mathematical specification.
+See [docs/formula.md](docs/formula.md) for the full mathematical specification and unit table.
 
 ## License
 
