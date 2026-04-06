@@ -1,0 +1,88 @@
+# Ed Says — dogfood config for this repo
+version: 1
+
+components:
+  - name: "core"
+    paths:
+      - "src/core/**"
+    subdomain: core
+    bus_factor_threshold: 2
+
+  - name: "analyzers"
+    paths:
+      - "src/analyzers/**"
+    subdomain: core
+    bus_factor_threshold: 2
+
+  - name: "scoring"
+    paths:
+      - "src/scoring/**"
+    subdomain: core
+    bus_factor_threshold: 2
+
+  - name: "llmj"
+    paths:
+      - "src/llmj/**"
+    subdomain: supporting
+    bus_factor_threshold: 2
+
+  - name: "github"
+    paths:
+      - "src/github/**"
+    subdomain: supporting
+    bus_factor_threshold: 2
+
+  - name: "ledger"
+    paths:
+      - "src/ledger/**"
+    subdomain: supporting
+    bus_factor_threshold: 1
+
+  - name: "utils"
+    paths:
+      - "src/utils/**"
+    subdomain: generic
+    bus_factor_threshold: 1
+
+thresholds:
+  levels:
+    requirements:
+      weight: 1.0
+      enabled: true
+    specification:
+      weight: 0.8
+      enabled: true
+    implementation:
+      weight: 1.0
+      enabled: true
+    validation:
+      weight: 0.6
+      enabled: true
+  severity:
+    low: "0-25"
+    medium: "26-50"
+    high: "51-75"
+    critical: "76+"
+
+analyzers:
+  complexity:
+    engine: lizard          # falls back to hand-rolled heuristic if lizard unavailable
+    languages:
+      - typescript
+    system_aware:           # weights for Cs_effective = Cs_diff × (1 + w1×file_norm + w2×fan_in_norm + w3×churn_norm)
+      file_norm_weight: 0.3
+      fan_in_norm_weight: 0.3
+      churn_norm_weight: 0.2
+      churn_lookback_days: 90
+  coupling:
+    enabled: false          # fan_in via dependency-cruiser (Phase 1+)
+
+ledger:
+  enabled: false
+  path: .ed-says-ledger.json
+  max_entries: 1000
+
+output:
+  comment: true
+  check_run: false
+  annotations: false
